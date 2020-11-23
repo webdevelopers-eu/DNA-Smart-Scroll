@@ -7,7 +7,7 @@
  *
  * Usage:
  *
- * $(el).dnaScrollIntoView();
+ * $(el).smartScroll();
  *
  * Scroll parent elements of $(el) so the rectangle is visible.
  * Good if you want to focus on particular area withing the large element (e.g. line in large WYSYWIG area)
