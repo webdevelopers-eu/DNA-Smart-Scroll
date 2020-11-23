@@ -12,7 +12,7 @@
  * Scroll parent elements of $(el) so the rectangle is visible.
  * Good if you want to focus on particular area withing the large element (e.g. line in large WYSYWIG area)
  *
- * $(el).dnaScrollIntoView(new DOMRect(0, 0, 100, 100));
+ * $(el).smartScroll(new DOMRect(0, 0, 100, 100));
  *
  * @module     DNA
  * @author     Daniel Sevcik <sevcik@webdevelopers.cz>
