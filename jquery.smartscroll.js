@@ -5,14 +5,19 @@
  *
  * Take in an account fixed and sticky elements.
  *
- * Usage:
+ * Syntax:
  *
- * $(el).smartScroll();
+ * $(el).smartScroll([DOMRect | "start" | "end" ]);
  *
  * Scroll parent elements of $(el) so the rectangle is visible.
  * Good if you want to focus on particular area withing the large element (e.g. line in large WYSYWIG area)
  *
+ * Examples:
+ *
+ * $(el).smartScroll();
  * $(el).smartScroll(new DOMRect(0, 0, 100, 100));
+ * $(el).smartScroll("start");
+ * $(el).smartScroll("end");
  *
  * @module     DNA
  * @author     Daniel Sevcik <sevcik@webdevelopers.cz>
@@ -20,7 +25,7 @@
  * @since      2020-11-23 13:05:47 UTC
  * @access     public
  */
-$.fn.smartScroll = function(domRect) {
+$.fn.smartScroll = function(param) {
     // $('.smart-scroll-debug').remove();
     let el = this.get(0);
     while (el && !el.clientHeight) {
@@ -40,13 +45,22 @@ $.fn.smartScroll = function(domRect) {
     // "height": view.height + "px",
     // "width": view.width + "px"
     // });
+    const objRect = el.getBoundingClientRect();
+    let rect;
 
-    const rect = domRect || el.getBoundingClientRect();
+    if (param == 'start') {
+	rect = new DOMRect(objRect.x, objRect.y, objRect.width, view.height);
+    } else if (param == 'end') {
+	rect = new DOMRect(objRect.x, objRect.bottom - view.height, objRect.width, view.height);
+    } else {
+	rect = param instanceof DOMRect ? param : objRect;
+    }
+
     let newY = 0;
-    if (Math.floor(rect.top) > Math.floor(view.top) && Math.floor(rect.bottom) > Math.floor(view.bottom)) {
+    if (Math.floor(rect.top) >= Math.floor(view.top) && Math.floor(rect.bottom) >= Math.floor(view.bottom)) {
 	// scroll up - align top to top
 	scroll(el, rect.top - Math.max(view.top, view.bottom - rect.height));
-    } else if (Math.floor(rect.top) < Math.floor(view.top) && Math.floor(rect.bottm) < Math.floor(view.bottm)) {
+    } else if (Math.floor(rect.top) <= Math.floor(view.top) && Math.floor(rect.bottom) <= Math.floor(view.bottom)) {
 	// scroll down - align bottom to bottom (for editor when focusing on bottom line it would scroll it down bellow screen)
 	scroll(el, rect.bottom - view.bottom);
     } else {
@@ -75,6 +89,13 @@ $.fn.smartScroll = function(domRect) {
 		});
 	    }
 	    box = box.offsetParent || box.parentElement;
+	}
+
+	if (diffY) { // last resort
+	    window.scroll({
+		top: Math.max(0, window.scrollY + diffY),
+		behavior: 'smooth'
+	    });
 	}
     }
 
