@@ -101,6 +101,7 @@ $.fn.smartScroll = function(param) {
 
     function getView(el) {
 	let view = new DOMRect(0, 0, $(window).width(), $(window).height());
+	let screenView = view;
 
 	// fixed
 	const all = document.body.getElementsByTagName("*");
@@ -109,7 +110,7 @@ $.fn.smartScroll = function(param) {
 	    const style = window.getComputedStyle(child, null);
 	    if (style.getPropertyValue('position') == 'fixed') {
 		// console.log("Scroll: Fixed: %o", child);
-		view = trim(view, child);
+		view = trim(screenView, view, child);
 	    }
 	}
 
@@ -121,7 +122,7 @@ $.fn.smartScroll = function(param) {
 		const style = window.getComputedStyle(child, null);
 		if (style.getPropertyValue('position') == 'sticky') {
 		    // console.log("Scroll: Sticky: %o", child);
-		    view = trim(view, child);
+		    view = trim(screenView, view, child);
 		}
 	    }
 	}
@@ -129,20 +130,32 @@ $.fn.smartScroll = function(param) {
 	return view;
     }
 
-    function trim(view, overlay) {
+    function trim(screenView, view, overlay) {
 	let ret = view;
 	const rect = overlay.getBoundingClientRect();
 
-	if ($parents.filter(overlay).length) { // not parent
+	// No dimensions
+	if (!rect.height || !rect.width) {
 	    return ret;
 	}
 
-	if (!rect.height || rect.bottom < view.top || rect.top > view.bottom) {
-	    // above/bellow
+	// above/bellow
+	if (rect.bottom < view.top || rect.top > view.bottom) {
 	    return ret;
 	}
 
-	if (rect.height >= view.height) { // Probably whole-page cover - ignore
+	// Probably whole-page cover - ignore or very small icon or something
+	if (rect.height >= screenView.height * 0.8 || rect.width < view.width * 0.3) {
+	    return ret;
+	}
+
+	// Element's center is in the middle fifth of the page - view-centered element - probably popup or cover
+	if (Math.abs((rect.height / 2 + rect.top) - (view.height / 2 + view.top)) < view.height / 5) {
+	    return ret;
+	}
+
+	// not parent
+	if ($parents.filter(overlay).length) {
 	    return ret;
 	}
 
