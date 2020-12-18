@@ -19,6 +19,15 @@
  * $(el).smartScroll("start");
  * $(el).smartScroll("end");
  *
+ * Ideally this extension should use scroll-padding CSS + plain Element.scrollIntoView() simple call but
+ *
+ *  - IE does not supported
+ *  - Safari does not support scroll-padding (https://bugs.webkit.org/show_bug.cgi?id=179379)
+ *  - there is no way to know scrolling stopped (https://github.com/w3c/csswg-drafts/issues/3744)
+ *
+ * Once the above is solvable then this plugin should be updated to be more effective.
+ *
+ *
  * @module     DNA
  * @author     Daniel Sevcik <sevcik@webdevelopers.cz>
  * @copyright  2020 Daniel Sevcik
@@ -38,79 +47,57 @@ $.fn.smartScroll = function(param) {
     }
 
     const $parents = $(el).parents();
-    const view = getView(el);
-    // $('<div class="smart-scroll-debug" style="background: rgba(255,0,0,0.2); position: fixed;"></div>').appendTo('body').css({
-    // "top": view.top,
-    // "left": view.left,
-    // "height": view.height + "px",
-    // "width": view.width + "px"
-    // });
-    const objRect = el.getBoundingClientRect();
-    let rect;
+    const view = getView();
 
-    if (param == 'start') {
-	rect = new DOMRect(objRect.x, objRect.y, objRect.width, view.height);
-    } else if (param == 'end') {
-	rect = new DOMRect(objRect.x, objRect.bottom - view.height, objRect.width, view.height);
-    } else {
-	rect = param instanceof DOMRect ? param : objRect;
-    }
+    scroll(el, getDiffY(param, el.getBoundingClientRect(), view));
 
-    let newY = 0;
-    if (Math.floor(rect.top) >= Math.floor(view.top) && Math.floor(rect.bottom) >= Math.floor(view.bottom)) {
-	// scroll up - align top to top
-	scroll(el, rect.top - Math.max(view.top, view.bottom - rect.height));
-    } else if (Math.floor(rect.top) <= Math.floor(view.top) && Math.floor(rect.bottom) <= Math.floor(view.bottom)) {
-	// scroll down - align bottom to bottom (for editor when focusing on bottom line it would scroll it down bellow screen)
-	scroll(el, rect.bottom - view.bottom);
-    } else {
-	// it spans the whole screen so we don't know where to
-	// scroll. User should use some small anchor then this large
-	// elment when calling $.fn.smartScroll()
-	console.log('SmartScroll: Not sure where to scroll. Element %o is too big for viewport %o', el, view);
-    }
-    // console.log("Scroll: Plan %s -> %s, view %o, element %o", rect.top, newY, view, el);
+    // Check if absolute elements changed and then issue one more fixed scroll command
+    setTimeout(function() {
+	const view2 = getView(view.blockingObjects);
+	if (view2.y != view.y || view2.height != view2.height) {
+	    console.log("SmartScroll: Constraints changed %o -> %o", view, view2);
+	    scroll(el, getDiffY(param, el.getBoundingClientRect(), view2));
+	}
+    }, 500);
+
     return this;
 
     function scroll(el, diffY) {
+	if (!diffY) return; // nowhere to scroll;
+
 	var box = el.offsetParent;
 	while (box && diffY) {
 	    const style = window.getComputedStyle(box, null);
 	    const overflow = window.getComputedStyle(box, null).overflowY;
-	    if (overflow == 'auto' || overflow == 'scroll') {
+	    if (overflow == 'auto' || overflow == 'scroll' /* || overflow == 'visible' */ || box.scrollTop) { // scrollable?
 		const currY = box.scrollTop;
-		const maxScrollY = box.scrollHeight - box.offsetHeight;
-		const changeY = Math.min(diffY, maxScrollY - currY);
+		const maxScrollY = box.scrollHeight - box.clientHeight;
+		const changeY = Math.max(-currY, Math.min(diffY, maxScrollY - currY));
 		diffY -= changeY;
-		console.log('SmartScroll: Animating %s -> %s, %o', el.scrollTop, currY + changeY, el);
-		box.scrollTo({
-		    top: Math.max(0, currY + changeY),
-		    behavior: 'smooth'
-		});
+		animate(box, Math.max(0, currY + changeY));
 	    }
 	    box = box.offsetParent || box.parentElement;
 	}
 
-	if (diffY) { // last resort
-	    window.scroll({
-		top: Math.max(0, window.scrollY + diffY),
-		behavior: 'smooth'
-	    });
+	if (diffY) { // reminder
+	    animate(window, Math.max(0, window.scrollY + diffY));
 	}
     }
 
-    function getView(el) {
+    function getView(candidates) {
+	let blockingObjects = [];
 	let view = new DOMRect(0, 0, $(window).width(), $(window).height());
 	let screenView = view;
 
 	// fixed
-	const all = document.body.getElementsByTagName("*");
+	const all = candidates || document.body.getElementsByTagName("*");
 	for (var i = 0; i < all.length; i++) {
 	    const child = all[i];
 	    const style = window.getComputedStyle(child, null);
 	    if (style.getPropertyValue('position') == 'fixed') {
 		// console.log("Scroll: Fixed: %o", child);
 		view = trim(screenView, view, child);
+		blockingObjects.push(child);
 	    }
 	}
 
@@ -123,10 +110,12 @@ $.fn.smartScroll = function(param) {
 		if (style.getPropertyValue('position') == 'sticky') {
 		    // console.log("Scroll: Sticky: %o", child);
 		    view = trim(screenView, view, child);
+		    blockingObjects.push(child);
 		}
 	    }
 	}
 
+	view.blockingObjects = blockingObjects;
 	return view;
     }
 
@@ -175,5 +164,39 @@ $.fn.smartScroll = function(param) {
 	}
 
 	return ret;
+    }
+
+    // This has major disadvantage: we don't know when it stopped: https://github.com/w3c/csswg-drafts/issues/3744
+    function animate(el, top) {
+	console.log('SmartScroll: Animating %s -> %s (target %o)', el.scrollTop || el.scrollY || 0, top, el);
+	el.scrollTo({top: top, behavior: 'smooth'});
+    }
+
+    function getDiffY(positionParam, targetRect, view) {
+	let diffY = 0;
+	let rect;
+
+	if (positionParam == 'start') {
+	    rect = new DOMRect(targetRect.x, targetRect.y, targetRect.width, view.height);
+	} else if (positionParam == 'end') {
+	    rect = new DOMRect(targetRect.x, targetRect.bottom - view.height, targetRect.width, view.height);
+	} else {
+	    rect = positionParam instanceof DOMRect ? positionParam : targetRect;
+	}
+
+	if (Math.floor(rect.top) >= Math.floor(view.top) && Math.floor(rect.bottom) >= Math.floor(view.bottom)) {
+	    // scroll up - align top to top
+	    diffY = rect.top - Math.max(view.top, view.bottom - rect.height);
+	} else if (Math.floor(rect.top) <= Math.floor(view.top) && Math.floor(rect.bottom) <= Math.floor(view.bottom)) {
+	    // scroll down - align bottom to bottom (for editor when focusing on bottom line it would scroll it down bellow screen)
+	    diffY = rect.bottom - view.bottom;
+	} else {
+	    // it spans the whole screen so we don't know where to
+	    // scroll. User should use some small anchor then this large
+	    // elment when calling $.fn.smartScroll()
+	    console.log('SmartScroll: Not sure where to scroll. Element is too big for viewport %o', view);
+	}
+
+	return diffY;
     }
 };
