@@ -46,82 +46,84 @@ $.fn.smartScroll = function(param) {
 	return this;
     }
 
-    const $parents = $(el).parents();
-    const view = getView();
+    let $parents = $(el).parents();
+    let view = getView();
+    let blockingObjects = view.blockingObjects;
 
-    scroll(el, getDiffY(param, el.getBoundingClientRect(), view));
-
-    // Check if absolute elements changed and then issue one more fixed scroll command
-    setTimeout(function() {
-	const view2 = getView(view.blockingObjects);
-	if (view2.y != view.y || view2.height != view2.height) {
-	    console.log("SmartScroll: Constraints changed %o -> %o", view, view2);
-	    scroll(el, getDiffY(param, el.getBoundingClientRect(), view2));
-	}
-    }, 500);
+    scroll(el, getDiffY(param, el.getBoundingClientRect(), view))
+	.done(function() { // test at the end if conditions changed
+	    scroll(el, getDiffY(param, el.getBoundingClientRect(), getView(/*blockingObjects*/)));
+	})
+	.fail(function() {
+	    console.warn('SmartScroll: Scrolling interrupted.');
+	});
 
     return this;
 
     function scroll(el, diffY) {
-	if (!diffY) return; // nowhere to scroll;
+	if (!diffY) return $.when(); // nowhere to scroll;
+	let dfds = [];
 
 	var box = el.offsetParent;
 	while (box && diffY) {
-	    const style = window.getComputedStyle(box, null);
-	    const overflow = window.getComputedStyle(box, null).overflowY;
+	    let style = window.getComputedStyle(box, null);
+	    let overflow = window.getComputedStyle(box, null).overflowY;
 	    if (overflow == 'auto' || overflow == 'scroll' /* || overflow == 'visible' */ || box.scrollTop) { // scrollable?
-		const currY = box.scrollTop;
-		const maxScrollY = box.scrollHeight - box.clientHeight;
-		const changeY = Math.max(-currY, Math.min(diffY, maxScrollY - currY));
+		let currY = box.scrollTop;
+		let maxScrollY = box.scrollHeight - box.clientHeight;
+		let changeY = Math.max(-currY, Math.min(diffY, maxScrollY - currY));
 		diffY -= changeY;
-		animate(box, Math.max(0, currY + changeY));
+		dfds.push(animate(box, Math.max(0, currY + changeY), changeY));
 	    }
 	    box = box.offsetParent || box.parentElement;
 	}
 
 	if (diffY) { // reminder
-	    animate(window, Math.max(0, window.scrollY + diffY));
+	    dfds.push(animate(window, Math.max(0, window.scrollY + diffY), diffY));
 	}
+
+	return $.when.apply($, dfds);
     }
 
-    function getView(candidates) {
-	let blockingObjects = [];
+    function getView(blockingObjects) {
+	blockingObjects = blockingObjects || findBlockingObjects();
 	let view = new DOMRect(0, 0, $(window).width(), $(window).height());
 	let screenView = view;
 
-	// fixed
-	const all = candidates || document.body.getElementsByTagName("*");
-	for (var i = 0; i < all.length; i++) {
-	    const child = all[i];
-	    const style = window.getComputedStyle(child, null);
-	    if (style.getPropertyValue('position') == 'fixed') {
-		// console.log("Scroll: Fixed: %o", child);
-		view = trim(screenView, view, child);
-		blockingObjects.push(child);
-	    }
-	}
-
-	// sticky
-	const parents = $parents.get();
-	for (var parentIdx = 0; parentIdx < parents.length; parentIdx++) {
-	    for (var childIdx = 0; childIdx < parents[parentIdx].childElementCount; childIdx++) {
-		const child = parents[parentIdx].children[childIdx];
-		const style = window.getComputedStyle(child, null);
-		if (style.getPropertyValue('position') == 'sticky') {
-		    // console.log("Scroll: Sticky: %o", child);
-		    view = trim(screenView, view, child);
-		    blockingObjects.push(child);
-		}
-	    }
+	for (var i = 0; i < blockingObjects.length; i++) {
+	    let child = blockingObjects[i];
+	    view = trimView(screenView, view, child);
 	}
 
 	view.blockingObjects = blockingObjects;
 	return view;
     }
 
-    function trim(screenView, view, overlay) {
+    function findBlockingObjects() {
+	let blockingObjects = [];
+
+	// fixed
+	let all = document.body.getElementsByTagName("*");
+	for (var i = 0; i < all.length; i++) {
+	    let child = all[i];
+	    let isVisible = child.offsetWidth > 0 && child.offsetHeight > 0;
+
+	    if (isVisible) {
+		let style = window.getComputedStyle(child, null);
+		let position = style.getPropertyValue('position');
+
+		if (position == 'fixed' || (position == 'sticky' && $parents.is(child.parentNode))) {
+		    blockingObjects.push(child);
+		}
+	    }
+	}
+
+	return blockingObjects;
+    }
+
+    function trimView(screenView, view, overlay) {
 	let ret = view;
-	const rect = overlay.getBoundingClientRect();
+	let rect = overlay.getBoundingClientRect();
 
 	// No dimensions
 	if (!rect.height || !rect.width) {
@@ -167,9 +169,26 @@ $.fn.smartScroll = function(param) {
     }
 
     // This has major disadvantage: we don't know when it stopped: https://github.com/w3c/csswg-drafts/issues/3744
-    function animate(el, top) {
-	console.log('SmartScroll: Animating %s -> %s (target %o)', el.scrollTop || el.scrollY || 0, top, el);
-	el.scrollTo({top: top, behavior: 'smooth'});
+    function animate(el, top, diffY) {
+	let dfd = $.Deferred();
+	let speed = 1000; // Math.min(1000, Math.abs(diffY) / window.innerHeight * 1000); // speed one screen per 3 second
+	let userInterrupt = $.fn.smartScroll.userInterrupt;
+
+	console.log('SmartScroll: Animating %s -> %s (diff %s), speed %s (target %o)', el.scrollTop || el.scrollY || 0, top, diffY, speed, el);
+	// el.scrollTo({top: top, behavior: 'smooth'});
+	$(el instanceof Window ? 'body, html' : el)
+	    .animate({"scrollTop": top}, {
+		"progress": function(anim, progress, remainingMs) {
+		    if (userInterrupt != $.fn.smartScroll.userInterrupt) {
+			$(this).stop();
+			dfd.reject();
+		    }
+		},
+		"complete": function() {dfd.resolve();},
+		"duration": speed
+	    });
+
+	return dfd;
     }
 
     function getDiffY(positionParam, targetRect, view) {
@@ -200,3 +219,10 @@ $.fn.smartScroll = function(param) {
 	return diffY;
     }
 };
+
+// To abort scrolling on user initiated scroll
+$.fn.smartScroll.userInterrupt = 0;
+$('html, body')
+    .on("scroll mousedown wheel DOMMouseScroll mousewheel keyup touchmove", function(){
+	$.fn.smartScroll.userInterrupt++;
+    });
