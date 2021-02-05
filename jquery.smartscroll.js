@@ -9,12 +9,22 @@
  *
  * $(el).smartScroll([DOMRect | "start" | "end" ]);
  *
+ * - "start" - align top of te element with the top of the unobstructed viewport
+ *
+ * - "end" - align top of te element with the bottom of the unobstructed viewport
+ *
+ * - "auto" - default. scroll minimal just to get it into the viewport
+ *
+ * - DOMRect - scroll this virtual rectangle intoview. It will
+ *   virtually draw the rectangle in given position and then calculate
+ *   amount of scrolling to get it into view.
+ *
  * Scroll parent elements of $(el) so the rectangle is visible.
  * Good if you want to focus on particular area withing the large element (e.g. line in large WYSYWIG area)
  *
  * Examples:
  *
- * $(el).smartScroll();
+ * $(el).smartScroll(); // auto-scroll into view
  * $(el).smartScroll(new DOMRect(0, 0, 100, 100));
  * $(el).smartScroll("start");
  * $(el).smartScroll("end");
@@ -34,7 +44,7 @@
  * @since      2020-11-23 13:05:47 UTC
  * @access     public
  */
-$.fn.smartScroll = function(param) {
+$.fn.smartScroll = function(positionParam) {
     // $('.smart-scroll-debug').remove();
     let el = this.get(0);
     while (el && !el.clientHeight) {
@@ -50,9 +60,9 @@ $.fn.smartScroll = function(param) {
     let view = getView();
     let blockingObjects = view.blockingObjects;
 
-    scroll(el, getDiffY(param, el.getBoundingClientRect(), view))
+    scroll(el, getDiffY(positionParam, el.getBoundingClientRect(), view))
 	.done(function() { // test at the end if conditions changed
-	    scroll(el, getDiffY(param, el.getBoundingClientRect(), getView(/*blockingObjects*/)));
+	    scroll(el, getDiffY(positionParam, el.getBoundingClientRect(), getView(/*blockingObjects*/)));
 	})
 	.fail(function() {
 	    console.warn('SmartScroll: Scrolling interrupted.');
@@ -111,9 +121,10 @@ $.fn.smartScroll = function(param) {
 	    if (isVisible) {
 		let style = window.getComputedStyle(child, null);
 		let position = style.getPropertyValue('position');
-
-		if (position == 'fixed' || (position == 'sticky' && $parents.is(child.parentNode))) {
-		    blockingObjects.push(child);
+		if (position == 'fixed' || (position == 'sticky' && $parents.is(child.parentNode))) { // sticky && fixed
+		    if (parseFloat(style.getPropertyValue('opacity')) > 0.32) { // ignore almost transparent objects, not sure if that's right.
+			blockingObjects.push(child);
+		    }
 		}
 	    }
 	}
@@ -194,6 +205,16 @@ $.fn.smartScroll = function(param) {
     function getDiffY(positionParam, targetRect, view) {
 	let diffY = 0;
 	let rect;
+
+	if (positionParam == 'auto') { // auto-detect start/end
+	    if (targetRect.top < view.top) {
+		positionParam = 'start';
+	    } else if (targetRect.bottom > view.bottom) {
+		positionParam = 'end';
+	    } else {
+		return 0; // in view already?
+	    }
+	}
 
 	if (positionParam == 'start') {
 	    rect = new DOMRect(targetRect.x, targetRect.y, targetRect.width, view.height);
