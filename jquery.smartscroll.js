@@ -9,22 +9,12 @@
  *
  * $(el).smartScroll([DOMRect | "start" | "end" ]);
  *
- * - "start" - align top of te element with the top of the unobstructed viewport
- *
- * - "end" - align top of te element with the bottom of the unobstructed viewport
- *
- * - "auto" - default. scroll minimal just to get it into the viewport
- *
- * - DOMRect - scroll this virtual rectangle intoview. It will
- *   virtually draw the rectangle in given position and then calculate
- *   amount of scrolling to get it into view.
- *
  * Scroll parent elements of $(el) so the rectangle is visible.
  * Good if you want to focus on particular area withing the large element (e.g. line in large WYSYWIG area)
  *
  * Examples:
  *
- * $(el).smartScroll(); // auto-scroll into view
+ * $(el).smartScroll();
  * $(el).smartScroll(new DOMRect(0, 0, 100, 100));
  * $(el).smartScroll("start");
  * $(el).smartScroll("end");
@@ -44,7 +34,7 @@
  * @since      2020-11-23 13:05:47 UTC
  * @access     public
  */
-$.fn.smartScroll = function(positionParam) {
+$.fn.smartScroll = function(param) {
     // $('.smart-scroll-debug').remove();
     let el = this.get(0);
     while (el && !el.clientHeight) {
@@ -59,10 +49,11 @@ $.fn.smartScroll = function(positionParam) {
     let $parents = $(el).parents();
     let view = getView();
     let blockingObjects = view.blockingObjects;
+    let antiLoop = [];
 
-    scroll(el, getDiffY(positionParam, el.getBoundingClientRect(), view))
+    scroll(el, getDiffY(param, el.getBoundingClientRect(), view))
 	.done(function() { // test at the end if conditions changed
-	    scroll(el, getDiffY(positionParam, el.getBoundingClientRect(), getView(/*blockingObjects*/)));
+	    scroll(el, getDiffY(param, el.getBoundingClientRect(), getView(/*blockingObjects*/)));
 	})
 	.fail(function() {
 	    console.warn('SmartScroll: Scrolling interrupted.');
@@ -71,7 +62,13 @@ $.fn.smartScroll = function(positionParam) {
     return this;
 
     function scroll(el, diffY) {
-	if (!diffY) return $.when(); // nowhere to scroll;
+	if (!diffY || antiLoop.indexOf(diffY) != -1) {
+	    console.log("SmartScroll: loop detected %s => %o", diffY, antiLoop);
+	    return $.when(); // loop?
+	}
+	antiLoop.push(diffY);
+
+	console.log("SmartScroll: scroll(%s, %s), anti loop %o", el.tagName || 'window', diffY, antiLoop);
 	let dfds = [];
 
 	var box = el.offsetParent;
@@ -116,16 +113,13 @@ $.fn.smartScroll = function(positionParam) {
 	let all = document.body.getElementsByTagName("*");
 	for (var i = 0; i < all.length; i++) {
 	    let child = all[i];
-	    let isVisible = child.offsetWidth > 0 && child.offsetHeight > 0;
+	    let style = window.getComputedStyle(child, null);
+	    let position = style.getPropertyValue('position');
 
-	    if (isVisible) {
-		let style = window.getComputedStyle(child, null);
-		let position = style.getPropertyValue('position');
-		if (position == 'fixed' || (position == 'sticky' && $parents.is(child.parentNode))) { // sticky && fixed
-		    if (parseFloat(style.getPropertyValue('opacity')) > 0.32) { // ignore almost transparent objects, not sure if that's right.
-			blockingObjects.push(child);
-		    }
-		}
+	    if (position == 'fixed') {
+		blockingObjects.push(child);
+	    } else if (position == 'sticky' && $parents.is(child.parentNode)) {
+		blockingObjects.push(child);
 	    }
 	}
 
@@ -184,8 +178,11 @@ $.fn.smartScroll = function(positionParam) {
 	let dfd = $.Deferred();
 	let speed = 1000; // Math.min(1000, Math.abs(diffY) / window.innerHeight * 1000); // speed one screen per 3 second
 	let userInterrupt = $.fn.smartScroll.userInterrupt;
+	let from = el.scrollTop || el.scrollY || 0;
 
-	console.log('SmartScroll: Animating %s -> %s (diff %s), speed %s (target %o)', el.scrollTop || el.scrollY || 0, top, diffY, speed, el);
+	if (from == top) return dfd.resolve();
+
+	// console.log('SmartScroll: Animating %s -> %s (diff %s), speed %s (target %o)', from, top, diffY, speed, el);
 	// el.scrollTo({top: top, behavior: 'smooth'});
 	$(el instanceof Window ? 'body, html' : el)
 	    .animate({"scrollTop": top}, {
@@ -205,16 +202,6 @@ $.fn.smartScroll = function(positionParam) {
     function getDiffY(positionParam, targetRect, view) {
 	let diffY = 0;
 	let rect;
-
-	if (positionParam == 'auto') { // auto-detect start/end
-	    if (targetRect.top < view.top) {
-		positionParam = 'start';
-	    } else if (targetRect.bottom > view.bottom) {
-		positionParam = 'end';
-	    } else {
-		return 0; // in view already?
-	    }
-	}
 
 	if (positionParam == 'start') {
 	    rect = new DOMRect(targetRect.x, targetRect.y, targetRect.width, view.height);
