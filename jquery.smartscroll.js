@@ -76,9 +76,10 @@ $.fn.smartScroll = function(param) {
 
     var box = el.offsetParent;
     while (box && diffY) {
-      const style = window.getComputedStyle(box, null);
-      const overflow = window.getComputedStyle(box, null).overflowY;
-      if (overflow == 'auto' || overflow == 'scroll' /* || overflow == 'visible' */ || box.scrollTop) { // scrollable?
+      // const style = window.getComputedStyle(box, null);
+      // const overflow = window.getComputedStyle(box, null).overflowY;
+      // if (overflow == 'auto' || overflow == 'scroll' || box.localName == 'html' || box.scrollTop) { // scrollable?
+      if (box.scrollHeight > box.clientHeight) {
 	const currY = box.scrollTop;
 	const maxScrollY = box.scrollHeight - box.clientHeight;
 	const changeY = Math.max(-currY, Math.min(diffY, maxScrollY - currY));
@@ -88,9 +89,12 @@ $.fn.smartScroll = function(param) {
       box = box.offsetParent || box.parentElement;
     }
 
-    if (diffY) { // reminder
-      animate(window, Math.max(0, window.scrollY + diffY));
-    }
+    // if diffY then there is no room to scroll => do not scroll,
+    // element won't be aligned to top because it is on very bottom
+    // and not tall enough.
+    // if (diffY) { // reminder
+    //   animate(window, Math.max(0, window.scrollY + diffY));
+    // }
   }
 
   function getView(candidates) {
