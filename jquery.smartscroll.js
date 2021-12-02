@@ -208,7 +208,7 @@ $.fn.smartScroll = function(param) {
       // it spans the whole screen so we don't know where to
       // scroll. User should use some small anchor then this large
       // elment when calling $.fn.smartScroll()
-      console.log('SmartScroll: Not sure where to scroll. Element is too big for viewport %o', view);
+      // console.log('SmartScroll: Not sure where to scroll. Element is too big for viewport %o', view);
     }
 
     return Math.round(diffY); // round it all it keeps makin diff 0<diff<1
